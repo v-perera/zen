@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Webcam Classifier</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f6f6f6;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 500px;
+      background: #fff;
+      border-radius: 18px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+      padding: 24px;
+      text-align: center;
+    }
+
+    h2 {
+      margin: 0 0 8px;
+      font-size: 24px;
+    }
+
+    p {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 16px;
+    }
+
+    .btn-wrap {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      padding: 12px 18px;
+      border: none;
+      border-radius: 12px;
+      background: #111;
+      color: white;
+      cursor: pointer;
+      font-size: 15px;
+      transition: 0.2s ease;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    #stopBtn {
+      background: #c62828;
+    }
+
+    #status {
+      margin-top: 14px;
+      font-size: 14px;
+      color: #333;
+      min-height: 20px;
+    }
+
+    #webcam-container {
+      margin-top: 18px;
+      min-height: 290px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #webcam-container canvas {
+      border-radius: 14px;
+      max-width: 100%;
+      height: auto;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+    }
+
+    #label-container {
+      margin-top: 18px;
+      text-align: left;
+    }
+
+    .result-row {
+      background: #f5f5f5;
+      padding: 10px 12px;
+      border-radius: 10px;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+
+    .top-result {
+      margin-top: 16px;
+      padding: 14px;
+      border-radius: 14px;
+      background: #f0f0f0;
+      font-size: 16px;
+      font-weight: bold;
+      display: none;
+    }
+
+    .placeholder {
+      color: #888;
+      font-size: 14px;
+      border: 2px dashed #ddd;
+      border-radius: 14px;
+      padding: 40px 20px;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>AI Webcam Classifier</h2>
+    <p>Click start to open your camera and begin recognition.</p>
+
+    <div class="btn-wrap">
+      <button id="startBtn">Start Camera</button>
+      <button id="stopBtn">Stop Camera</button>
+    </div>
+
+    <div id="status"></div>
+    <div id="top-result" class="top-result"></div>
+
+    <div id="webcam-container">
+      <div id="placeholder" class="placeholder">Camera preview will appear here</div>
+    </div>
+
+    <div id="label-container"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+
+  <script>
+    const MODEL_URL = "https://teachablemachine.withgoogle.com/models/4IMkaT5X8/";
+
+    let model, webcam, labelContainer, maxPredictions;
+    let isRunning = false;
+    let animationId = null;
+
+    async function init() {
+      const status = document.getElementById("status");
+      const webcamContainer = document.getElementById("webcam-container");
+      const placeholder = document.getElementById("placeholder");
+
+      if (isRunning) {
+        status.innerText = "Camera is already running.";
+        return;
+      }
+
+      try {
+        status.innerText = "Loading model...";
+        model = await tmImage.load(MODEL_URL + "model.json", MODEL_URL + "metadata.json");
+        maxPredictions = model.getTotalClasses();
+
+        status.innerText = "Requesting camera access...";
+        webcam = new tmImage.Webcam(280, 280, true);
+
+        await webcam.setup();
+        await webcam.play();
+
+        isRunning = true;
+
+        webcamContainer.innerHTML = "";
+        webcamContainer.appendChild(webcam.canvas);
+
+        labelContainer = document.getElementById("label-container");
+        labelContainer.innerHTML = "";
+
+        for (let i = 0; i < maxPredictions; i++) {
+          const row = document.createElement("div");
+          row.className = "result-row";
+          labelContainer.appendChild(row);
+        }
+
+        status.innerText = "Camera started.";
+        animationId = window.requestAnimationFrame(loop);
+      } catch (error) {
+        console.error(error);
+        status.innerText = "Error: " + (error.message || error);
+      }
+    }
+
+    async function loop() {
+      if (!isRunning) return;
+
+      webcam.update();
+      await predict();
+      animationId = window.requestAnimationFrame(loop);
+    }
+
+    async function predict() {
+      if (!model || !webcam) return;
+
+      const prediction = await model.predict(webcam.canvas);
+      prediction.sort((a, b) => b.probability - a.probability);
+
+      const top = prediction[0];
+      const topResult = document.getElementById("top-result");
+      topResult.style.display = "block";
+      topResult.innerHTML = `Top prediction: ${top.className} (${(top.probability * 100).toFixed(1)}%)`;
+
+      for (let i = 0; i < prediction.length; i++) {
+        labelContainer.childNodes[i].innerHTML =
+          "<strong>" + prediction[i].className + "</strong>: " +
+          (prediction[i].probability * 100).toFixed(1) + "%";
+      }
+    }
+
+    function stopCamera() {
+      const status = document.getElementById("status");
+      const webcamContainer = document.getElementById("webcam-container");
+      const topResult = document.getElementById("top-result");
+      const labelContainer = document.getElementById("label-container");
+
+      if (!isRunning || !webcam) {
+        status.innerText = "Camera is not running.";
+        return;
+      }
+
+      try {
+        isRunning = false;
+
+        if (animationId) {
+          cancelAnimationFrame(animationId);
+          animationId = null;
+        }
+
+        if (webcam.webcam && webcam.webcam.srcObject) {
+          webcam.webcam.srcObject.getTracks().forEach(track => track.stop());
+        }
+
+        webcam.stop();
+
+        webcamContainer.innerHTML = '<div id="placeholder" class="placeholder">Camera preview stopped</div>';
+        topResult.style.display = "none";
+        topResult.innerHTML = "";
+        labelContainer.innerHTML = "";
+
+        status.innerText = "Camera stopped.";
+      } catch (error) {
+        console.error(error);
+        status.innerText = "Error stopping camera.";
+      }
+    }
+
+    document.getElementById("startBtn").addEventListener("click", init);
+    document.getElementById("stopBtn").addEventListener("click", stopCamera);
+  </script>
+</body>
+</html>
